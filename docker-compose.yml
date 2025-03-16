@@ -1,0 +1,138 @@
+version: '3'
+
+services:
+  # Database services
+  postgres:
+    extends:
+      file: ./database/docker-compose.yml
+      service: postgres
+    networks:
+      - stock-market-network
+
+  elasticsearch:
+    extends:
+      file: ./database/docker-compose.yml
+      service: elasticsearch
+    networks:
+      - stock-market-network
+
+  kibana:
+    extends:
+      file: ./database/docker-compose.yml
+      service: kibana
+    networks:
+      - stock-market-network
+
+  # Kafka services
+  zookeeper:
+    extends:
+      file: ./kafka-broker/docker-compose.yml
+      service: zookeeper
+    networks:
+      - stock-market-network
+
+  kafka:
+    extends:
+      file: ./kafka-broker/docker-compose.yml
+      service: kafka
+    depends_on:
+      - zookeeper
+    networks:
+      - stock-market-network
+
+  kafka-ui:
+    extends:
+      file: ./kafka-broker/docker-compose.yml
+      service: kafka-ui
+    depends_on:
+      - kafka
+    networks:
+      - stock-market-network
+
+  # Producer service
+  producer-service:
+    build:
+      context: ./producer-service
+    container_name: producer-service
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BROKER=kafka:9092
+    networks:
+      - stock-market-network
+    restart: unless-stopped
+
+  # Consumer services
+  consumer-stream-storage:
+    build:
+      context: ./consumer-stream-storage
+    container_name: consumer-stream-storage
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - KAFKA_BROKER=kafka:9092
+      - DB_HOST=postgres
+    networks:
+      - stock-market-network
+    restart: unless-stopped
+
+  consumer-batch-processing:
+    build:
+      context: ./consumer-batch-processing
+    container_name: consumer-batch-processing
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - KAFKA_BROKER=kafka:9092
+      - DB_HOST=postgres
+    networks:
+      - stock-market-network
+    restart: unless-stopped
+
+  consumer-data-storage:
+    build:
+      context: ./consumer-data-storage
+    container_name: consumer-data-storage
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - KAFKA_BROKER=kafka:9092
+      - DB_HOST=postgres
+    networks:
+      - stock-market-network
+    restart: unless-stopped
+
+  consumer-trading-bot:
+    build:
+      context: ./consumer-trading-bot
+    container_name: consumer-trading-bot
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - KAFKA_BROKER=kafka:9092
+      - DB_HOST=postgres
+    networks:
+      - stock-market-network
+    restart: unless-stopped
+
+  consumer-dashboard:
+    build:
+      context: ./consumer-dashboard
+    container_name: consumer-dashboard
+    depends_on:
+      - postgres
+    environment:
+      - DB_HOST=postgres
+    ports:
+      - "8000:8000"
+    networks:
+      - stock-market-network
+    restart: unless-stopped
+
+networks:
+  stock-market-network:
+    driver: bridge
