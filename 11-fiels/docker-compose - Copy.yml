@@ -1,0 +1,224 @@
+version: '3.8'
+
+networks:
+  my-network:
+    driver: bridge
+    name: my-network
+
+volumes:
+  postgres-data:
+    name: postgres-data
+  pgadmin-data:
+    name: pgadmin-data
+  zookeeper-data:
+    name: zookeeper-data
+  zookeeper-log:
+    name: zookeeper-log
+  broker-data:
+    name: broker-data
+
+services:
+  # Alpha Vantage API Service
+  alphavantageapi:
+    build: ./1-producer
+    container_name: alphavantageapi
+    restart: always
+    networks:
+      - my-network
+    environment:
+      - ALPHAVANTAGE_API_KEY=7GF3TAWV0JGZ8K54
+      - API_URL_TEMPLATE=https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={api_key}
+    depends_on:
+      - broker
+      - schema-registry
+
+  # Zookeeper Service
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper
+    hostname: zookeeper
+    networks:
+      - my-network
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+
+  # Kafka Broker Service
+  broker:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: broker
+    hostname: broker
+    networks:
+      - my-network
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+    volumes:
+      - broker-data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+
+  # Schema Registry Service
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.3.0
+    container_name: schema-registry
+    hostname: schema-registry
+    networks:
+      - my-network
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: broker:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    depends_on:
+      - broker
+
+  # Connect Service
+  connect:
+    image: confluentinc/cp-kafka-connect:7.3.0
+    container_name: connect
+    hostname: connect
+    networks:
+      - my-network
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: broker:29092
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: compose-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-statuses
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+    depends_on:
+      - broker
+      - schema-registry
+
+  # Control Center Service
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:7.3.0
+    container_name: control-center
+    hostname: control-center
+    networks:
+      - my-network
+    ports:
+      - "9021:9021"
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: broker:29092
+      CONTROL_CENTER_CONNECT_CONNECT-DEFAULT_CLUSTER: connect:8083
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      PORT: 9021
+    depends_on:
+      - broker
+      - schema-registry
+      - connect
+
+  # KSQL DB Server
+  ksqldb-server:
+    image: confluentinc/ksqldb-server:0.28.2
+    container_name: ksqldb-server
+    hostname: ksqldb-server
+    networks:
+      - my-network
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_BOOTSTRAP_SERVERS: broker:29092
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+    depends_on:
+      - broker
+      - schema-registry
+
+  # KSQL DB CLI
+  ksqldb-cli:
+    image: confluentinc/ksqldb-cli:0.28.2
+    container_name: ksqldb-cli
+    networks:
+      - my-network
+    entrypoint: /bin/sh
+    tty: true
+    depends_on:
+      - ksqldb-server
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    hostname: postgres
+    networks:
+      - my-network
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: stockmarket
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./8-database/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # PGAdmin Service
+  pgadmin:
+    image: dpage/pgadmin4:7.2
+    container_name: pgadmin
+    networks:
+      - my-network
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+
+  # Data Processing Service
+  data-processing:
+    build: ./4-consumer-batch-processing
+    container_name: data-processing
+    networks:
+      - my-network
+    depends_on:
+      - broker
+      - schema-registry
+      - postgres
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=broker:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=stockmarket
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres

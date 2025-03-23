@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Market Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header>
+        <h1>Stock Market Dashboard</h1>
+        <div class="controls">
+            <select id="stockSelector">
+                <option value="">Select a stock...</option>
+                <!-- Stock options will be populated dynamically -->
+            </select>
+            <select id="timeframeSelector">
+                <option value="1d">1 Day</option>
+                <option value="1w">1 Week</option>
+                <option value="1m">1 Month</option>
+                <option value="3m">3 Months</option>
+                <option value="1y">1 Year</option>
+            </select>
+        </div>
+    </header>
+
+    <main>
+        <section class="market-summary">
+            <h2>Market Summary</h2>
+            <div class="summary-container">
+                <div class="summary-card">
+                    <h3>Top Gainers</h3>
+                    <div id="topGainers" class="summary-list"></div>
+                </div>
+                <div class="summary-card">
+                    <h3>Top Losers</h3>
+                    <div id="topLosers" class="summary-list"></div>
+                </div>
+                <div class="summary-card">
+                    <h3>Most Active</h3>
+                    <div id="mostActive" class="summary-list"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="stock-detail">
+            <h2 id="stockTitle">Stock Details</h2>
+            <div class="chart-container">
+                <canvas id="priceChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="volumeChart"></canvas>
+            </div>
+        </section>
+
+        <section class="stock-metrics">
+            <h2>Stock Metrics</h2>
+            <div class="metrics-container">
+                <div class="metrics-card">
+                    <h3>Price Metrics</h3>
+                    <table id="priceMetrics">
+                        <tr>
+                            <th>Metric</th>
+                            <th>Value</th>
+                        </tr>
+                        <!-- Price metrics will be populated dynamically -->
+                    </table>
+                </div>
+                <div class="metrics-card">
+                    <h3>Moving Averages</h3>
+                    <table id="movingAverages">
+                        <tr>
+                            <th>Period</th>
+                            <th>Value</th>
+                        </tr>
+                        <!-- Moving averages will be populated dynamically -->
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Stock Market Data Engineering Project &copy; 2025</p>
+    </footer>
+
+    <script src="{{ url_for('static', path='/js/dashboard.js') }}"></script>
+</body>
+</html>

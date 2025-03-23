@@ -1,0 +1,7 @@
+requests
+kafka-python
+yfinance
+pandas
+tqdm
+schedule
+requests

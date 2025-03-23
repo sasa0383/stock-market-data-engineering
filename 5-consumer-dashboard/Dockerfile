@@ -3,9 +3,12 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-COPY requirements.txt requirements.txt
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
 
 COPY . .
 
-CMD ["python", "main.py"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
+
+

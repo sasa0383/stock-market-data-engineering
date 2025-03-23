@@ -1,138 +1,241 @@
-version: '3'
+version: '3.8'
+
+# ===== NETWORK CONFIGURATION =====
+# Single network for all services to communicate
+networks:
+  my-network:
+    driver: bridge
+    name: my-network
+
+# ===== VOLUME DEFINITIONS =====
+# Persistent storage volumes for data retention
+volumes:
+  postgres-data:
+    name: postgres-data
+  pgadmin-data:
+    name: pgadmin-data
+  zookeeper-data:
+    name: zookeeper-data
+  zookeeper-log:
+    name: zookeeper-log
+  broker-data:
+    name: broker-data
 
 services:
-  # Database services
-  postgres:
-    extends:
-      file: ./database/docker-compose.yml
-      service: postgres
+  # ===== PRODUCER SERVICE =====
+  # Alpha Vantage API Service - Fetches stock market data from Alpha Vantage API
+  alphavantageapi:
+    build: ./1-producer-service
+    container_name: alphavantageapi
+    restart: always
     networks:
-      - stock-market-network
+      - my-network
+    environment:
+      - ALPHAVANTAGE_API_KEY=7GF3TAWV0JGZ8K54
+      - API_URL_TEMPLATE=https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={api_key}
+    depends_on:
+      - broker
+      - schema-registry
 
-  elasticsearch:
-    extends:
-      file: ./database/docker-compose.yml
-      service: elasticsearch
-    networks:
-      - stock-market-network
-
-  kibana:
-    extends:
-      file: ./database/docker-compose.yml
-      service: kibana
-    networks:
-      - stock-market-network
-
-  # Kafka services
+  # ===== KAFKA ECOSYSTEM =====
+  # Zookeeper Service - Manages Kafka broker coordination
   zookeeper:
-    extends:
-      file: ./kafka-broker/docker-compose.yml
-      service: zookeeper
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper
+    hostname: zookeeper
     networks:
-      - stock-market-network
+      - my-network
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
 
-  kafka:
-    extends:
-      file: ./kafka-broker/docker-compose.yml
-      service: kafka
+  # Kafka Broker Service - Message broker for data streaming
+  broker:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: broker
+    hostname: broker
+    networks:
+      - my-network
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+    volumes:
+      - broker-data:/var/lib/kafka/data
     depends_on:
       - zookeeper
-    networks:
-      - stock-market-network
 
-  kafka-ui:
-    extends:
-      file: ./kafka-broker/docker-compose.yml
-      service: kafka-ui
-    depends_on:
-      - kafka
+  # Schema Registry Service - Manages Avro schemas for Kafka
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.3.0
+    container_name: schema-registry
+    hostname: schema-registry
     networks:
-      - stock-market-network
-
-  # Producer service
-  producer-service:
-    build:
-      context: ./producer-service
-    container_name: producer-service
-    depends_on:
-      - kafka
-    environment:
-      - KAFKA_BROKER=kafka:9092
-    networks:
-      - stock-market-network
-    restart: unless-stopped
-
-  # Consumer services
-  consumer-stream-storage:
-    build:
-      context: ./consumer-stream-storage
-    container_name: consumer-stream-storage
-    depends_on:
-      - kafka
-      - postgres
-    environment:
-      - KAFKA_BROKER=kafka:9092
-      - DB_HOST=postgres
-    networks:
-      - stock-market-network
-    restart: unless-stopped
-
-  consumer-batch-processing:
-    build:
-      context: ./consumer-batch-processing
-    container_name: consumer-batch-processing
-    depends_on:
-      - kafka
-      - postgres
-    environment:
-      - KAFKA_BROKER=kafka:9092
-      - DB_HOST=postgres
-    networks:
-      - stock-market-network
-    restart: unless-stopped
-
-  consumer-data-storage:
-    build:
-      context: ./consumer-data-storage
-    container_name: consumer-data-storage
-    depends_on:
-      - kafka
-      - postgres
-    environment:
-      - KAFKA_BROKER=kafka:9092
-      - DB_HOST=postgres
-    networks:
-      - stock-market-network
-    restart: unless-stopped
-
-  consumer-trading-bot:
-    build:
-      context: ./consumer-trading-bot
-    container_name: consumer-trading-bot
-    depends_on:
-      - kafka
-      - postgres
-    environment:
-      - KAFKA_BROKER=kafka:9092
-      - DB_HOST=postgres
-    networks:
-      - stock-market-network
-    restart: unless-stopped
-
-  consumer-dashboard:
-    build:
-      context: ./consumer-dashboard
-    container_name: consumer-dashboard
-    depends_on:
-      - postgres
-    environment:
-      - DB_HOST=postgres
+      - my-network
     ports:
-      - "8000:8000"
-    networks:
-      - stock-market-network
-    restart: unless-stopped
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: broker:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    depends_on:
+      - broker
 
-networks:
-  stock-market-network:
-    driver: bridge
+  # Connect Service - Kafka Connect for data integration
+  connect:
+    image: confluentinc/cp-kafka-connect:7.3.0
+    container_name: connect
+    hostname: connect
+    networks:
+      - my-network
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: broker:29092
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: compose-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-statuses
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+    depends_on:
+      - broker
+      - schema-registry
+
+  # ===== KSQLDB SERVICES =====
+  # KSQL DB Server - SQL interface for stream processing
+  ksqldb-server:
+    image: confluentinc/ksqldb-server:0.28.2
+    container_name: ksqldb-server
+    hostname: ksqldb-server
+    networks:
+      - my-network
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_BOOTSTRAP_SERVERS: broker:29092
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+    depends_on:
+      - broker
+      - schema-registry
+
+  # KSQL DB CLI - Command line interface for KSQLDB
+  ksqldb-cli:
+    image: confluentinc/ksqldb-cli:0.28.2
+    container_name: ksqldb-cli
+    networks:
+      - my-network
+    entrypoint: /bin/sh
+    tty: true
+    depends_on:
+      - ksqldb-server
+
+  # ===== DATABASE SERVICES =====
+  # PostgreSQL Database - Primary data storage
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    hostname: postgres
+    networks:
+      - my-network
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: stockmarket
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./8-database/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # PGAdmin Service - PostgreSQL administration interface
+  pgadmin:
+    image: dpage/pgadmin4:7.2
+    container_name: pgadmin
+    networks:
+      - my-network
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+
+  # ===== CONSUMER SERVICES =====
+  # Data Processing Service - Batch processing of stock data
+  data-processing:
+    build: ./4-consumer-batch-processing
+    container_name: data-processing
+    networks:
+      - my-network
+    depends_on:
+      - broker
+      - schema-registry
+      - postgres
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=broker:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=stockmarket
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+  # ===== DASHBOARD SERVICE =====
+  consumer-dashboard:
+    build: ./5-consumer-dashboard  # Adjust the path if needed
+    container_name: consumer-dashboard
+    ports:
+      - "5000:5000"  # Ensure this port is available
+    networks:
+      - my-network
+    depends_on:
+      - broker
+      - data-processing
+  # ===== REAL-TIME DATA ENRICHMENT SERVICE =====
+  data-storage:
+    build: ./7-consumer-data-storage
+    container_name: data-storage
+    networks:
+      - my-network
+    depends_on:
+      - broker
+      - postgres
+    environment:
+      KAFKA_BROKER: broker:29092
+      KAFKA_TOPICS: kaggle_historical_data,aapl_1m_data,msft_1m_data  # Add others if needed
+      KAFKA_GROUP_ID: data-storage-group
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: stockmarket
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_TABLE: stock_prices

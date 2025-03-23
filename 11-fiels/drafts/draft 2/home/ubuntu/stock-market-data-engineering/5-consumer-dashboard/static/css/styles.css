@@ -1,0 +1,66 @@
+/* Custom styles for Stock Market Dashboard */
+
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+    border-radius: 8px;
+    border: none;
+}
+
+.card-header {
+    background-color: #f1f5f9;
+    border-bottom: 1px solid #e9ecef;
+    font-weight: bold;
+}
+
+.form-select {
+    border-radius: 6px;
+}
+
+.table {
+    margin-bottom: 0;
+}
+
+.uptrend {
+    color: #28a745;
+}
+
+.downtrend {
+    color: #dc3545;
+}
+
+.sideways {
+    color: #6c757d;
+}
+
+#stockInfo {
+    min-height: 150px;
+}
+
+#priceChart, #marketTrendsChart {
+    min-height: 300px;
+}
+
+footer {
+    box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .card-body {
+        padding: 1rem;
+    }
+    
+    #priceChart, #marketTrendsChart {
+        min-height: 250px;
+    }
+}
